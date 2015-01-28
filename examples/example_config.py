@@ -70,19 +70,11 @@ backlog = 2048
 #
 
 workers = 1
-worker_class = 'egg:gunicorn#sync'
+worker_class = 'sync'
 worker_connections = 1000
 timeout = 30
 keepalive = 2
 
-#
-# Debugging
-#
-#   debug - Turn on debugging in the server. This limits the number of
-#       worker processes to 1 and changes some error handling that's
-#       sent to clients.
-#
-#       True or False
 #
 #   spew - Install a trace function that spews every line of Python
 #       that is executed when running the server. This is the
@@ -91,7 +83,6 @@ keepalive = 2
 #       True or False
 #
 
-debug = False
 spew = False
 
 #
@@ -199,4 +190,24 @@ def pre_exec(server):
     server.log.info("Forked child, re-executing.")
 
 def when_ready(server):
-    server.log.info("Server is ready. Spwawning workers")
+    server.log.info("Server is ready. Spawning workers")
+
+def worker_int(worker):
+    worker.log.info("worker received INT or QUIT signal")
+
+    ## get traceback info
+    import threading, sys, traceback
+    id2name = dict([(th.ident, th.name) for th in threading.enumerate()])
+    code = []
+    for threadId, stack in sys._current_frames().items():
+        code.append("\n# Thread: %s(%d)" % (id2name.get(threadId,""),
+            threadId))
+        for filename, lineno, name, line in traceback.extract_stack(stack):
+            code.append('File: "%s", line %d, in %s' % (filename,
+                lineno, name))
+            if line:
+                code.append("  %s" % (line.strip()))
+    worker.log.debug("\n".join(code))
+
+def worker_abort(worker):
+    worker.log.info("worker received SIGABRT signal")

@@ -3,11 +3,8 @@
 # This file is part of gunicorn released under the MIT license.
 # See the NOTICE for more information.
 
-from __future__ import with_statement
-
 import t
 
-import functools
 import os
 import sys
 
@@ -16,6 +13,8 @@ from gunicorn.app.base import Application
 from gunicorn.workers.sync import SyncWorker
 
 dirname = os.path.dirname(__file__)
+def cfg_module():
+    return 'config.test_cfg'
 def cfg_file():
     return os.path.join(dirname, "config", "test_cfg.py")
 def paster_ini():
@@ -57,7 +56,7 @@ def test_property_access():
     # Class was loaded
     t.eq(c.worker_class, SyncWorker)
 
-    # Debug affects workers
+    # Workers defaults to 1
     t.eq(c.workers, 1)
     c.set("workers", 3)
     t.eq(c.workers, 3)
@@ -89,15 +88,15 @@ def test_property_access():
 
 def test_bool_validation():
     c = config.Config()
-    t.eq(c.debug, False)
-    c.set("debug", True)
-    t.eq(c.debug, True)
-    c.set("debug", "true")
-    t.eq(c.debug, True)
-    c.set("debug", "false")
-    t.eq(c.debug, False)
-    t.raises(ValueError, c.set, "debug", "zilch")
-    t.raises(TypeError, c.set, "debug", 4)
+    t.eq(c.preload_app, False)
+    c.set("preload_app", True)
+    t.eq(c.preload_app, True)
+    c.set("preload_app", "true")
+    t.eq(c.preload_app, True)
+    c.set("preload_app", "false")
+    t.eq(c.preload_app, False)
+    t.raises(ValueError, c.set, "preload_app", "zilch")
+    t.raises(TypeError, c.set, "preload_app", 4)
 
 def test_pos_int_validation():
     c = config.Config()
@@ -169,9 +168,9 @@ def test_cmd_line():
     with AltArgs(["prog_name", "-w", "3"]):
         app = NoConfigApp()
         t.eq(app.cfg.workers, 3)
-    with AltArgs(["prog_name", "--debug"]):
+    with AltArgs(["prog_name", "--preload"]):
         app = NoConfigApp()
-        t.eq(app.cfg.debug, True)
+        t.eq(app.cfg.preload_app, True)
 
 def test_app_config():
     with AltArgs():
@@ -187,12 +186,38 @@ def test_load_config():
     t.eq(app.cfg.workers, 3)
     t.eq(app.cfg.proc_name, "fooey")
 
+def test_load_config_module():
+    with AltArgs(["prog_name", "-c", cfg_module()]):
+        app = NoConfigApp()
+    t.eq(app.cfg.bind, ["unix:/tmp/bar/baz"])
+    t.eq(app.cfg.workers, 3)
+    t.eq(app.cfg.proc_name, "fooey")
+
 def test_cli_overrides_config():
     with AltArgs(["prog_name", "-c", cfg_file(), "-b", "blarney"]):
         app = NoConfigApp()
         t.eq(app.cfg.bind, ["blarney"])
         t.eq(app.cfg.proc_name, "fooey")
 
+def test_cli_overrides_config_module():
+    with AltArgs(["prog_name", "-c", cfg_module(), "-b", "blarney"]):
+        app = NoConfigApp()
+        t.eq(app.cfg.bind, ["blarney"])
+        t.eq(app.cfg.proc_name, "fooey")
+
+def test_default_config_file():
+    default_config = os.path.join(os.path.abspath(os.getcwd()),
+                                                  'gunicorn.conf.py')
+    with open(default_config, 'w+') as default:
+        default.write("bind='0.0.0.0:9090'")
+
+    t.eq(config.get_default_config_file(), default_config)
+
+    with AltArgs(["prog_name"]):
+        app = NoConfigApp()
+        t.eq(app.cfg.bind, ["0.0.0.0:9090"])
+
+    os.unlink(default_config)
 
 def test_post_request():
     c = config.Config()

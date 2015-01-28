@@ -1,3 +1,6 @@
+.. Please update gunicorn/config.py instead.
+
+.. _settings:
 
 Settings
 ========
@@ -16,7 +19,7 @@ config
 * ``-c FILE, --config FILE``
 * ``None``
 
-The path to a Gunicorn config file.
+The path to a Gunicorn config file, or python module.
 
 Only has an effect when specified on the command line or as part of an
 application specific configuration.
@@ -28,12 +31,19 @@ bind
 ~~~~
 
 * ``-b ADDRESS, --bind ADDRESS``
-* ``127.0.0.1:8000``
+* ``['127.0.0.1:8000']``
 
 The socket to bind.
 
 A string of the form: 'HOST', 'HOST:PORT', 'unix:PATH'. An IP is a valid
 HOST.
+
+Multiple addresses can be bound. ex.::
+
+    $ gunicorn -b 127.0.0.1:8000 -b [::1]:8000 test:app
+
+will bind the `test:app` application on localhost both on ipv6
+and ipv4 interfaces.
 
 backlog
 ~~~~~~~
@@ -59,11 +69,14 @@ workers
 * ``-w INT, --workers INT``
 * ``1``
 
-The number of worker process for handling requests.
+The number of worker processes for handling requests.
 
 A positive integer generally in the 2-4 x $(NUM_CORES) range. You'll
 want to vary this a bit to find the best for your particular
 application's work load.
+
+By default, the value of the WEB_CONCURRENCY environment variable. If
+it is not defined, the default is 1.
 
 worker_class
 ~~~~~~~~~~~~
@@ -73,15 +86,17 @@ worker_class
 
 The type of workers to use.
 
-The default class (sync) should handle most 'normal' types of workloads.
-You'll want to read http://gunicorn.org/design.html for information on
-when you might want to choose one of the other worker classes.
+The default class (sync) should handle most 'normal' types of
+workloads.  You'll want to read
+http://docs.gunicorn.org/en/latest/design.html for information
+on when you might want to choose one of the other worker
+classes.
 
 A string referring to one of the following bundled classes:
 
 * ``sync``
 * ``eventlet`` - Requires eventlet >= 0.9.7
-* ``gevent``   - Requires gevent >= 0.12.2 (?)
+* ``gevent``   - Requires gevent >= 0.13
 * ``tornado``  - Requires tornado >= 0.2
 
 Optionally, you can provide your own worker by giving gunicorn a
@@ -89,6 +104,22 @@ python path to a subclass of gunicorn.workers.base.Worker. This
 alternative syntax will load the gevent class:
 ``gunicorn.workers.ggevent.GeventWorker``. Alternatively the syntax
 can also load the gevent class with ``egg:gunicorn#gevent``
+
+threads
+~~~~~~~
+
+* ``--threads INT``
+* ``1``
+
+The number of worker threads for handling requests.
+
+Run each worker with the specified number of threads.
+
+A positive integer generally in the 2-4 x $(NUM_CORES) range. You'll
+want to vary this a bit to find the best for your particular
+application's work load.
+
+If it is not defined, the default is 1.
 
 worker_connections
 ~~~~~~~~~~~~~~~~~~
@@ -114,6 +145,20 @@ to help limit the damage of memory leaks.
 
 If this is set to zero (the default) then the automatic worker
 restarts are disabled.
+
+max_requests_jitter
+~~~~~~~~~~~~~~~~~~~
+
+* ``--max-requests-jitter INT``
+* ``0``
+
+The maximum jitter to add to the max-requests setting.
+
+The jitter causes the restart per worker to be randomized by
+``randint(0, max_requests_jitter)``. This is intended to stagger worker
+restarts to avoid all workers restarting at the same time.
+
+.. versionadded:: 19.2
 
 timeout
 ~~~~~~~
@@ -199,16 +244,20 @@ on the allowed size of an HTTP request header field.
 Debugging
 ---------
 
-debug
-~~~~~
+reload
+~~~~~~
 
-* ``--debug``
+* ``--reload``
 * ``False``
 
-Turn on debugging in the server.
+Restart workers when code changes.
 
-This limits the number of worker processes to 1 and changes some error
-handling that's sent to clients.
+This setting is intended for development. It will cause workers to be
+restarted whenever application code changes.
+
+The reloader is incompatible with application preloading. When using a
+paste configuration be sure that the server block does not import any
+application code or the reload will not work as designed.
 
 spew
 ~~~~
@@ -226,7 +275,7 @@ check_config
 * ``--check-config``
 * ``False``
 
-Check the configuration..
+Check the configuration.
 
 Server Mechanics
 ----------------
@@ -244,6 +293,24 @@ speed up server boot times. Although, if you defer application loading
 to each worker process, you can reload your application code easily by
 restarting workers.
 
+sendfile
+~~~~~~~~
+
+* ``--sendfile``
+* ``True``
+
+Enables or disables the use of ``sendfile()``.
+
+.. versionadded:: 19.2
+
+chdir
+~~~~~
+
+* ``--chdir``
+* ``/Users/benoitc/work/gunicorn/py27/gunicorn/docs``
+
+Chdir to specified directory before apps loading.
+
 daemon
 ~~~~~~
 
@@ -255,6 +322,20 @@ Daemonize the Gunicorn process.
 Detaches the server from the controlling terminal and enters the
 background.
 
+raw_env
+~~~~~~~
+
+* ``-e ENV, --env ENV``
+* ``[]``
+
+Set environment variable (key=value).
+
+Pass variables to the execution environment. Ex.::
+
+    $ gunicorn -b 127.0.0.1:8000 --env FOO=1 test:app
+
+and test for the foo variable environment in your application.
+
 pidfile
 ~~~~~~~
 
@@ -264,6 +345,16 @@ pidfile
 A filename to use for the PID file.
 
 If not set, no PID file will be written.
+
+worker_tmp_dir
+~~~~~~~~~~~~~~
+
+* ``--worker-tmp-dir DIR``
+* ``None``
+
+A directory to use for the worker heartbeat temporary file.
+
+If not set, the default temporary directory will be used.
 
 user
 ~~~~
@@ -334,21 +425,18 @@ when handling HTTPS requests.
 It is important that your front-end proxy configuration ensures that
 the headers defined here can not be passed directly from the client.
 
-x_forwarded_for_header
-~~~~~~~~~~~~~~~~~~~~~~
-
-* ``X-FORWARDED-FOR``
-
-Set the X-Forwarded-For header that identify the originating IP
-address of the client connection to gunicorn via a proxy.
-
 forwarded_allow_ips
 ~~~~~~~~~~~~~~~~~~~
 
+* ``--forwarded-allow-ips STRING``
 * ``127.0.0.1``
 
-Front-end's IPs from which allowed to handle X-Forwarded-* headers.
+Front-end's IPs from which allowed to handle set secure headers.
 (comma separate).
+
+Set to "*" to disable checking of Front-end IPs (useful for setups
+where you don't know in advance the IP address of Front-end, but
+you still trust the environment)
 
 Logging
 -------
@@ -367,29 +455,29 @@ access_log_format
 ~~~~~~~~~~~~~~~~~
 
 * ``--access-logformat STRING``
-* ``"%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"``
+* ``%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"``
 
-The Access log format .
+The access log format.
 
-By default:
-
-%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"
-
-
-h: remote address
-l: '-'
-u: currently '-', may be user name in future releases
-t: date of the request
-r: status line (ex: GET / HTTP/1.1)
-s: status
-b: response length or '-'
-f: referer
-a: user agent
-T: request time in seconds
-D: request time in microseconds,
-p: process ID
-{Header}i: request header
-{Header}o: response header
+==========  ===========
+Identifier  Description
+==========  ===========
+h           remote address
+l           '-'
+u           currently '-', may be user name in future releases
+t           date of the request
+r           status line (e.g. ``GET / HTTP/1.1``)
+s           status
+b           response length or '-'
+f           referer
+a           user agent
+T           request time in seconds
+D           request time in microseconds
+L           request time in decimal seconds
+p           process ID
+{Header}i   request header
+{Header}o   response header
+==========  ===========
 
 errorlog
 ~~~~~~~~
@@ -400,6 +488,9 @@ errorlog
 The Error log file to write to.
 
 "-" means log to stderr.
+
+.. versionchanged:: 19.2
+   Log to ``stderr`` by default.
 
 loglevel
 ~~~~~~~~
@@ -421,7 +512,7 @@ logger_class
 ~~~~~~~~~~~~
 
 * ``--logger-class STRING``
-* ``simple``
+* ``gunicorn.glogging.Logger``
 
 The logger you want to use to log events in gunicorn.
 
@@ -442,6 +533,83 @@ logconfig
 The log config file to use.
 Gunicorn uses the standard Python logging module's Configuration
 file format.
+
+syslog_addr
+~~~~~~~~~~~
+
+* ``--log-syslog-to SYSLOG_ADDR``
+* ``unix:///var/run/syslog``
+
+Address to send syslog messages.
+
+Address is a string of the form:
+
+* 'unix://PATH#TYPE' : for unix domain socket. TYPE can be 'stream'
+  for the stream driver or 'dgram' for the dgram driver.
+  'stream' is the default.
+* 'udp://HOST:PORT' : for UDP sockets
+* 'tcp://HOST:PORT' : for TCP sockets
+
+syslog
+~~~~~~
+
+* ``--log-syslog``
+* ``False``
+
+Send *Gunicorn* logs to syslog.
+
+syslog_prefix
+~~~~~~~~~~~~~
+
+* ``--log-syslog-prefix SYSLOG_PREFIX``
+* ``None``
+
+Makes gunicorn use the parameter as program-name in the syslog entries.
+
+All entries will be prefixed by gunicorn.<prefix>. By default the program
+name is the name of the process.
+
+syslog_facility
+~~~~~~~~~~~~~~~
+
+* ``--log-syslog-facility SYSLOG_FACILITY``
+* ``user``
+
+Syslog facility name
+
+enable_stdio_inheritance
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``-R, --enable-stdio-inheritance``
+* ``False``
+
+Enable stdio inheritance
+
+Enable inheritance for stdio file descriptors in daemon mode.
+
+Note: To disable the python stdout buffering, you can to set the user
+environment variable ``PYTHONUNBUFFERED`` .
+
+statsd_host
+~~~~~~~~~~~
+
+* ``--statsd-host STATSD_ADDR``
+* ``None``
+
+``host:port`` of the statsd server to log to.
+
+.. versionadded:: 19.1
+
+statsd_prefix
+~~~~~~~~~~~~~
+
+* ``--statsd-prefix STATSD_PREFIX``
+* ````
+
+Prefix to use when emitting statsd metrics (a trailing ``.`` is added,
+if not provided).
+
+.. versionadded:: 19.2
 
 Process Naming
 --------------
@@ -477,10 +645,12 @@ django_settings
 * ``--settings STRING``
 * ``None``
 
-The Python path to a Django settings module.
+The Python path to a Django settings module. (deprecated)
 
 e.g. 'myproject.settings.main'. If this isn't provided, the
 DJANGO_SETTINGS_MODULE environment variable will be used.
+
+**DEPRECATED**: use the --env argument instead.
 
 Server Mechanics
 ----------------
@@ -491,10 +661,23 @@ pythonpath
 * ``--pythonpath STRING``
 * ``None``
 
-A directory to add to the Python path for Django.
+A directory to add to the Python path.
 
 e.g.
 '/home/djangoprojects/myproject'.
+
+paste
+~~~~~
+
+* ``--paste STRING, --paster STRING``
+* ``None``
+
+Load a paste.deploy config file. The argument may contain a "#" symbol
+followed by the name of an app section from the config file, e.g.
+"production.ini#admin".
+
+At this time, using alternate server blocks is not supported. Use the
+command line arguments to control server configuration instead.
 
 Server Hooks
 ------------
@@ -561,6 +744,47 @@ Called just after a worker has been forked.
 The callable needs to accept two instance variables for the Arbiter and
 new Worker.
 
+post_worker_init
+~~~~~~~~~~~~~~~~
+
+*  ::
+
+        def post_worker_init(worker):
+            pass
+
+Called just after a worker has initialized the application.
+
+The callable needs to accept one instance variable for the initialized
+Worker.
+
+worker_int
+~~~~~~~~~~
+
+*  ::
+
+        def worker_int(worker):
+            pass
+
+Called just after a worker exited on SIGINT or SIGQUIT.
+
+The callable needs to accept one instance variable for the initialized
+Worker.
+
+worker_abort
+~~~~~~~~~~~~
+
+*  ::
+
+        def worker_abort(worker):
+            pass
+
+Called when a worker received the SIGABRT signal.
+
+This call generally happens on timeout.
+
+The callable needs to accept one instance variable for the initialized
+Worker.
+
 pre_exec
 ~~~~~~~~
 
@@ -591,7 +815,7 @@ post_request
 
 *  ::
 
-        def post_request(worker, req, environ):
+        def post_request(worker, req, environ, resp):
             pass
 
 Called after a worker processes the request.
@@ -612,6 +836,34 @@ Called just after a worker has been exited.
 The callable needs to accept two instance variables for the Arbiter and
 the just-exited Worker.
 
+nworkers_changed
+~~~~~~~~~~~~~~~~
+
+*  ::
+
+        def nworkers_changed(server, new_value, old_value):
+            pass
+
+Called just after num_workers has been changed.
+
+The callable needs to accept an instance variable of the Arbiter and
+two integers of number of workers after and before change.
+
+If the number of workers is set for the first time, old_value would be
+None.
+
+on_exit
+~~~~~~~
+
+*  ::
+
+        def on_exit(server):
+            pass
+
+Called just before exiting gunicorn.
+
+The callable needs to accept a single instance variable for the Arbiter.
+
 Server Mechanics
 ----------------
 
@@ -623,19 +875,19 @@ proxy_protocol
 
 Enable detect PROXY protocol (PROXY mode).
 
-Allow using Http and Proxy together. It's may be useful for work with
-stunnel as https frondend and gunicorn as http server.
+Allow using Http and Proxy together. It may be useful for work with
+stunnel as https frontend and gunicorn as http server.
 
 PROXY protocol: http://haproxy.1wt.eu/download/1.5/doc/proxy-protocol.txt
 
 Example for stunnel config::
 
-[https]
-protocol = proxy
-accept  = 443
-connect = 80
-cert = /etc/ssl/certs/stunnel.pem
-key = /etc/ssl/certs/stunnel.key
+    [https]
+    protocol = proxy
+    accept  = 443
+    connect = 80
+    cert = /etc/ssl/certs/stunnel.pem
+    key = /etc/ssl/certs/stunnel.key
 
 proxy_allow_ips
 ~~~~~~~~~~~~~~~
@@ -644,4 +896,75 @@ proxy_allow_ips
 * ``127.0.0.1``
 
 Front-end's IPs from which allowed accept proxy requests (comma separate).
+
+Set to "*" to disable checking of Front-end IPs (useful for setups
+where you don't know in advance the IP address of Front-end, but
+you still trust the environment)
+
+Ssl
+---
+
+keyfile
+~~~~~~~
+
+* ``--keyfile FILE``
+* ``None``
+
+SSL key file
+
+certfile
+~~~~~~~~
+
+* ``--certfile FILE``
+* ``None``
+
+SSL certificate file
+
+ssl_version
+~~~~~~~~~~~
+
+* ``--ssl-version``
+* ``3``
+
+SSL version to use (see stdlib ssl module's)
+
+cert_reqs
+~~~~~~~~~
+
+* ``--cert-reqs``
+* ``0``
+
+Whether client certificate is required (see stdlib ssl module's)
+
+ca_certs
+~~~~~~~~
+
+* ``--ca-certs FILE``
+* ``None``
+
+CA certificates file
+
+suppress_ragged_eofs
+~~~~~~~~~~~~~~~~~~~~
+
+* ``--suppress-ragged-eofs``
+* ``True``
+
+Suppress ragged EOFs (see stdlib ssl module's)
+
+do_handshake_on_connect
+~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``--do-handshake-on-connect``
+* ``False``
+
+Whether to perform SSL handshake on socket connect (see stdlib ssl module's)
+
+ciphers
+~~~~~~~
+
+* ``--ciphers``
+* ``TLSv1``
+
+Ciphers to use (see stdlib ssl module's)
 
